@@ -1,39 +1,61 @@
+// Simple shared-password gate. The password doubles as the Bearer token sent on
+// every API request (see api.js). Validated against the server's APP_PASSWORD.
 import { createContext, useContext, useEffect, useState } from 'react'
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
-import { auth, googleProvider, OWNER_EMAIL, isConfigured } from './firebase.js'
+import { TOKEN_KEY } from './api.js'
 
 const AuthCtx = createContext(null)
 export const useAuth = () => useContext(AuthCtx)
 
+async function validate(password) {
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+  return res.ok
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(undefined) // undefined = still loading
+  const [authorized, setAuthorized] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
+  // On load, silently validate any stored password.
   useEffect(() => {
-    if (!isConfigured) {
-      setUser(null)
+    const token = localStorage.getItem(TOKEN_KEY)
+    if (!token) {
+      setLoading(false)
       return
     }
-    return onAuthStateChanged(auth, (u) => setUser(u))
+    validate(token)
+      .then((ok) => {
+        if (ok) setAuthorized(true)
+        else localStorage.removeItem(TOKEN_KEY)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
   }, [])
 
-  const login = async () => {
+  const login = async (password) => {
     setError('')
     try {
-      await signInWithPopup(auth, googleProvider)
-    } catch (e) {
-      setError(e.message)
+      const ok = await validate(password)
+      if (ok) {
+        localStorage.setItem(TOKEN_KEY, password)
+        setAuthorized(true)
+      } else {
+        setError('Wrong password.')
+      }
+    } catch {
+      setError('Could not reach the server. Is it running?')
     }
   }
 
-  const value = {
-    user,
-    loading: user === undefined,
-    // Authorized only if signed in AND (no owner restriction set OR email matches owner).
-    authorized: !!user && (!OWNER_EMAIL || user.email === OWNER_EMAIL),
-    error,
-    login,
-    logout: () => signOut(auth),
+  const logout = () => {
+    localStorage.removeItem(TOKEN_KEY)
+    setAuthorized(false)
   }
+
+  const value = { authorized, loading, error, login, logout }
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>
 }

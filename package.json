@@ -3,14 +3,21 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Personal expense tracker with hisab (accounting) statements, backed by a JSON file.",
+  "description": "Personal expense tracker with hisab (accounting) statements, backed by Neon Postgres via an Express API.",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "dev": "vite",
+    "dev:server": "node server/index.js",
     "build": "vite build",
+    "start": "node server/index.js",
     "preview": "vite preview"
   },
   "dependencies": {
-    "firebase": "^12.14.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.0"

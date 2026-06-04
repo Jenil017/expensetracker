@@ -1,6 +1,6 @@
+import { useState } from 'react'
 import { Routes, Route, NavLink, Link } from 'react-router-dom'
 import { useAuth } from './auth.jsx'
-import { isConfigured, OWNER_EMAIL } from './firebase.js'
 import Dashboard from './pages/Dashboard.jsx'
 import LedgerForm from './pages/LedgerForm.jsx'
 import LedgerDetail from './pages/LedgerDetail.jsx'
@@ -25,11 +25,10 @@ function NavItem({ to, children, end }) {
 }
 
 export default function App() {
-  const { user, loading, authorized, login, logout, error } = useAuth()
+  const { loading, authorized, login, logout, error } = useAuth()
 
-  if (!isConfigured) return <SetupNotice />
   if (loading) return <Centered>Loading…</Centered>
-  if (!authorized) return <Login user={user} login={login} logout={logout} error={error} />
+  if (!authorized) return <Login login={login} error={error} />
 
   return (
     <div className="min-h-screen">
@@ -47,10 +46,9 @@ export default function App() {
             <NavItem to="/backup">Backup</NavItem>
             <button
               onClick={logout}
-              title={user?.email}
               className="ml-1 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-200"
             >
-              Sign out
+              Lock
             </button>
           </nav>
         </div>
@@ -76,9 +74,17 @@ function Centered({ children }) {
   return <div className="grid min-h-screen place-items-center text-slate-500">{children}</div>
 }
 
-function Login({ user, login, logout, error }) {
-  // Signed in but with the wrong Google account.
-  const wrongAccount = !!user
+function Login({ login, error }) {
+  const [pw, setPw] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    setBusy(true)
+    await login(pw)
+    setBusy(false)
+  }
+
   return (
     <div className="grid min-h-screen place-items-center px-4">
       <div className="card w-full max-w-sm p-8 text-center">
@@ -88,39 +94,20 @@ function Login({ user, login, logout, error }) {
         <h1 className="text-xl font-bold text-slate-900">Hisab</h1>
         <p className="mt-1 text-sm text-slate-500">Personal expense tracker</p>
 
-        {wrongAccount ? (
-          <>
-            <p className="mt-5 text-sm text-red-600">
-              <span className="font-medium">{user.email}</span> is not allowed to use this app.
-            </p>
-            <button onClick={logout} className="btn-secondary mt-4 w-full">
-              Sign out & try another account
-            </button>
-          </>
-        ) : (
-          <button onClick={login} className="btn-primary mt-6 w-full">
-            Sign in with Google
+        <form onSubmit={submit} className="mt-6 space-y-3 text-left">
+          <input
+            type="password"
+            className="input"
+            placeholder="Password"
+            value={pw}
+            onChange={(e) => setPw(e.target.value)}
+            autoFocus
+          />
+          <button type="submit" className="btn-primary w-full" disabled={busy || !pw}>
+            {busy ? 'Checking…' : 'Unlock'}
           </button>
-        )}
+        </form>
         {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
-        {OWNER_EMAIL && !wrongAccount && (
-          <p className="mt-4 text-xs text-slate-400">Only {OWNER_EMAIL} can sign in.</p>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function SetupNotice() {
-  return (
-    <div className="grid min-h-screen place-items-center px-4">
-      <div className="card max-w-lg p-8">
-        <h1 className="text-lg font-bold text-slate-900">Firebase not configured</h1>
-        <p className="mt-2 text-sm text-slate-600">
-          Create a <code>.env.local</code> file from <code>.env.example</code> and fill in your Firebase
-          web config (and <code>VITE_OWNER_EMAIL</code>), then restart <code>npm run dev</code>.
-        </p>
-        <p className="mt-2 text-sm text-slate-500">See the README for step-by-step setup.</p>
       </div>
     </div>
   )
