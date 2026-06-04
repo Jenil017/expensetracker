@@ -1,10 +1,8 @@
-# Render Blueprint for the Hisab web service (Express API + built React app + Neon Postgres).
-# Deploy: https://dashboard.render.com -> New -> Blueprint -> connect this repo.
-# Render reads this file and prompts you for DATABASE_URL and APP_PASSWORD
-# (they are NOT stored here, so they stay out of git).
+# Render Blueprint for Khatabook (Express API + React PWA + Neon Postgres).
+# Deploy: Render Dashboard → New → Blueprint → connect this repo.
 services:
   - type: web
-    name: hisab
+    name: transaction-buddy
     runtime: node
     plan: free
     buildCommand: npm install && npm run build
@@ -14,7 +12,11 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
-      - key: APP_PASSWORD
+      - key: JWT_SECRET
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
         sync: false
       - key: NODE_VERSION
         value: "20"

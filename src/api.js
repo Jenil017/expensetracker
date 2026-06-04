@@ -1,8 +1,4 @@
-// Data layer: talks to the same-origin /api REST server (Express + Neon Postgres).
-// Keeps the exact interface the pages already use, so UI code is unchanged.
-// Auth is a single shared password, sent as a Bearer token on every request.
-
-export const TOKEN_KEY = 'hisab_token'
+export const TOKEN_KEY = 'khatabook_token'
 
 const getToken = () => localStorage.getItem(TOKEN_KEY) || ''
 
@@ -17,19 +13,13 @@ async function request(method, path, body) {
   })
 
   if (res.status === 401) {
-    // Token rejected — drop it and bounce back to the login screen.
     localStorage.removeItem(TOKEN_KEY)
-    window.location.reload()
+    window.location.href = '/login'
     throw new Error('Unauthorized')
   }
   if (!res.ok) {
     let msg = `Request failed (${res.status})`
-    try {
-      const j = await res.json()
-      if (j?.error) msg = j.error
-    } catch {
-      /* non-JSON error body */
-    }
+    try { const j = await res.json(); if (j?.error) msg = j.error } catch { /* */ }
     throw new Error(msg)
   }
   if (res.status === 204) return null
@@ -46,20 +36,28 @@ const qs = (params = {}) => {
 }
 
 export const api = {
-  // ----- ledgers -----
-  listLedgers: () => request('GET', '/ledgers'),
-  getLedger: (id) => request('GET', `/ledgers/${id}`),
-  createLedger: (data) => request('POST', '/ledgers', data),
-  updateLedger: (id, data) => request('PUT', `/ledgers/${id}`, data),
-  deleteLedger: (id) => request('DELETE', `/ledgers/${id}`),
+  // auth
+  googleLogin: (credential) => request('POST', '/auth/google', { credential }),
+  register: (data) => request('POST', '/auth/register', data),
+  login: (data) => request('POST', '/auth/login', data),
+  me: () => request('GET', '/auth/me'),
+  updateMe: (data) => request('PUT', '/auth/me', data),
 
-  // ----- transactions -----
-  listTransactions: (params = {}) => request('GET', `/transactions${qs(params)}`),
+  // persons
+  listPersons: () => request('GET', '/persons'),
+  createPerson: (data) => request('POST', '/persons', data),
+  updatePerson: (id, data) => request('PUT', `/persons/${id}`, data),
+  deletePerson: (id) => request('DELETE', `/persons/${id}`),
+
+  // person transactions
+  listTransactions: (personId, params = {}) => request('GET', `/persons/${personId}/transactions${qs(params)}`),
   createTransaction: (data) => request('POST', '/transactions', data),
   updateTransaction: (id, data) => request('PUT', `/transactions/${id}`, data),
   deleteTransaction: (id) => request('DELETE', `/transactions/${id}`),
 
-  // ----- backup -----
-  exportData: () => request('GET', '/export'),
-  importData: (payload) => request('POST', '/import', payload),
+  // expenses
+  listExpenses: (params = {}) => request('GET', `/expenses${qs(params)}`),
+  createExpense: (data) => request('POST', '/expenses', data),
+  updateExpense: (id, data) => request('PUT', `/expenses/${id}`, data),
+  deleteExpense: (id) => request('DELETE', `/expenses/${id}`),
 }

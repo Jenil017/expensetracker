@@ -1,127 +1,60 @@
-import { useState } from 'react'
-import { Routes, Route, NavLink, Link } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './auth.jsx'
-import InstallButton from './InstallButton.jsx'
-import Dashboard from './pages/Dashboard.jsx'
-import LedgerForm from './pages/LedgerForm.jsx'
-import LedgerDetail from './pages/LedgerDetail.jsx'
-import Hisab from './pages/Hisab.jsx'
-import Search from './pages/Search.jsx'
-import Backup from './pages/Backup.jsx'
+import BottomNav from './components/BottomNav.jsx'
+import Login from './pages/Login.jsx'
+import Home from './pages/Home.jsx'
+import PersonDetail from './pages/PersonDetail.jsx'
+import Analytics from './pages/Analytics.jsx'
+import Profile from './pages/Profile.jsx'
 
-function NavItem({ to, children, end }) {
+function ProtectedLayout() {
+  const { user, loading } = useAuth()
+  const location = useLocation()
+
+  if (loading) return <AppLoader />
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
+
+  const showNav = ['/', '/analytics', '/profile'].includes(location.pathname)
+
   return (
-    <NavLink
-      to={to}
-      end={end}
-      className={({ isActive }) =>
-        `rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-          isActive ? 'bg-brand-600 text-white' : 'text-slate-600 hover:bg-slate-200'
-        }`
-      }
-    >
-      {children}
-    </NavLink>
+    <>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/persons/:id" element={<PersonDetail />} />
+        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+      {showNav && <BottomNav />}
+    </>
   )
 }
 
 export default function App() {
-  const { loading, authorized, login, logout, error } = useAuth()
-
-  if (loading) return <Centered>Loading…</Centered>
-  if (!authorized) return <Login login={login} error={error} />
+  const { user } = useAuth()
 
   return (
-    <div className="min-h-screen">
-      <header className="no-print sticky top-0 z-10 border-b border-slate-200 bg-white/90 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-3">
-          <Link to="/" className="flex items-center gap-2 text-lg font-bold text-slate-900">
-            <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-600 text-white">₹</span>
-            Hisab
-          </Link>
-          <nav className="flex items-center gap-1">
-            <NavItem to="/" end>
-              Dashboard
-            </NavItem>
-            <NavItem to="/history">History</NavItem>
-            <NavItem to="/backup">Backup</NavItem>
-            <button
-              onClick={logout}
-              className="ml-1 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 hover:bg-slate-200"
-            >
-              Lock
-            </button>
-          </nav>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl px-4 py-6">
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/ledgers/new" element={<LedgerForm />} />
-          <Route path="/ledgers/:id" element={<LedgerDetail />} />
-          <Route path="/ledgers/:id/edit" element={<LedgerForm />} />
-          <Route path="/hisab/:id" element={<Hisab />} />
-          <Route path="/history" element={<Search />} />
-          <Route path="/backup" element={<Backup />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
-      </main>
-    </div>
+    <Routes>
+      <Route
+        path="/login"
+        element={user ? <Navigate to="/" replace /> : <Login />}
+      />
+      <Route path="/*" element={<ProtectedLayout />} />
+    </Routes>
   )
 }
 
-function Centered({ children }) {
-  return <div className="grid min-h-screen place-items-center text-slate-500">{children}</div>
-}
-
-function Login({ login, error }) {
-  const [pw, setPw] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const submit = async (e) => {
-    e.preventDefault()
-    setBusy(true)
-    await login(pw)
-    setBusy(false)
-  }
-
+function AppLoader() {
   return (
-    <div className="grid min-h-screen place-items-center px-4">
-      <div className="card w-full max-w-sm p-8 text-center">
-        <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-brand-600 text-2xl font-bold text-white">
-          ₹
-        </div>
-        <h1 className="text-xl font-bold text-slate-900">Hisab</h1>
-        <p className="mt-1 text-sm text-slate-500">Personal expense tracker</p>
-
-        <form onSubmit={submit} className="mt-6 space-y-3 text-left">
-          <input
-            type="password"
-            className="input"
-            placeholder="Password"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-            autoFocus
-          />
-          <button type="submit" className="btn-primary w-full" disabled={busy || !pw}>
-            {busy ? 'Checking…' : 'Unlock'}
-          </button>
-        </form>
-        {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
-        <InstallButton />
+    <div className="min-h-dvh bg-brand-gradient flex flex-col items-center justify-center gap-4">
+      <div className="h-16 w-16 rounded-2xl bg-white/20 flex items-center justify-center">
+        <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+          <rect x="4" y="4" width="12" height="28" rx="3" fill="white" opacity="0.9"/>
+          <rect x="20" y="4" width="12" height="28" rx="3" fill="white" opacity="0.6"/>
+        </svg>
       </div>
-    </div>
-  )
-}
-
-function NotFound() {
-  return (
-    <div className="card p-8 text-center">
-      <p className="text-lg font-semibold">Page not found</p>
-      <Link to="/" className="btn-primary mt-4">
-        Go to Dashboard
-      </Link>
+      <div className="h-5 w-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
     </div>
   )
 }

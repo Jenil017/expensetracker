@@ -1,6 +1,6 @@
-// Minimal service worker — enables PWA install + offline app shell.
-// IMPORTANT: it must NEVER cache /api responses (data + auth always hit the network).
-const CACHE = 'hisab-v1'
+// Khatabook service worker — PWA install + offline app shell.
+// Never caches /api responses (always hit network for data).
+const CACHE = 'txbuddy-v1'
 const SHELL = ['/']
 
 self.addEventListener('install', (event) => {
@@ -10,8 +10,7 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches
-      .keys()
+    caches.keys()
       .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   )
@@ -21,7 +20,6 @@ self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
 
-  // Only touch same-origin GETs; leave the API, auth, and health check alone.
   if (
     request.method !== 'GET' ||
     url.origin !== self.location.origin ||
@@ -31,24 +29,28 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Navigations: network-first (always get the latest app), fall back to cached shell offline.
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).catch(() => caches.match('/')))
+    event.respondWith(
+      fetch(request)
+        .then((res) => {
+          const copy = res.clone()
+          caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {})
+          return res
+        })
+        .catch(() => caches.match('/'))
+    )
     return
   }
 
-  // Hashed static assets: cache-first (filenames change on every build, so this is safe).
   event.respondWith(
     caches.match(request).then(
       (cached) =>
         cached ||
-        fetch(request)
-          .then((res) => {
-            const copy = res.clone()
-            caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {})
-            return res
-          })
-          .catch(() => cached),
+        fetch(request).then((res) => {
+          const copy = res.clone()
+          caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {})
+          return res
+        }).catch(() => cached),
     ),
   )
 })

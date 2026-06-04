@@ -1,6 +1,3 @@
-// Data layer backed by Neon Postgres (node-postgres). Exposes the same `api`-style
-// interface the old data layer did, so the REST routes stay thin. All amounts/dates
-// are returned in the exact shapes the React UI already expects.
 import './env.js'
 import pg from 'pg'
 import { randomUUID } from 'crypto'
@@ -8,186 +5,195 @@ import { randomUUID } from 'crypto'
 const { Pool } = pg
 
 if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is not set. Put your Neon connection string in .env.local (dev) or Render env vars (prod).')
+  throw new Error('DATABASE_URL is not set.')
 }
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // Neon requires TLS; this avoids local CA hassles.
   ssl: { rejectUnauthorized: false },
 })
 
-// ---------- schema ----------
 export async function initSchema() {
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS ledgers (
+    CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
-      source TEXT NOT NULL DEFAULT '',
-      amount NUMERIC NOT NULL DEFAULT 0,
-      date_received TEXT NOT NULL DEFAULT '',
-      purpose TEXT NOT NULL DEFAULT '',
-      expected_txn_min INTEGER NOT NULL DEFAULT 0,
-      expected_txn_max INTEGER NOT NULL DEFAULT 0,
-      deadline TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'active',
-      note TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL
+      email TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      avatar_url TEXT NOT NULL DEFAULT '',
+      provider TEXT NOT NULL DEFAULT 'email',
+      password_hash TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE TABLE IF NOT EXISTS transactions (
+
+    CREATE TABLE IF NOT EXISTS persons (
       id TEXT PRIMARY KEY,
-      ledger_id TEXT NOT NULL,
-      amount NUMERIC NOT NULL DEFAULT 0,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_persons_user ON persons(user_id);
+
+    CREATE TABLE IF NOT EXISTS person_transactions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      person_id TEXT NOT NULL REFERENCES persons(id) ON DELETE CASCADE,
+      type TEXT NOT NULL CHECK (type IN ('credit', 'debit')),
+      amount NUMERIC(12,2) NOT NULL,
       description TEXT NOT NULL DEFAULT '',
-      category TEXT NOT NULL DEFAULT 'Misc',
-      date TEXT NOT NULL DEFAULT '',
-      important BOOLEAN NOT NULL DEFAULT false,
-      note TEXT NOT NULL DEFAULT '',
-      created_at TEXT NOT NULL
+      txn_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE INDEX IF NOT EXISTS idx_txn_ledger ON transactions(ledger_id);
+    CREATE INDEX IF NOT EXISTS idx_ptxns_person ON person_transactions(person_id);
+    CREATE INDEX IF NOT EXISTS idx_ptxns_user ON person_transactions(user_id);
+
+    CREATE TABLE IF NOT EXISTS expenses (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      amount NUMERIC(12,2) NOT NULL,
+      category TEXT NOT NULL DEFAULT 'Other',
+      description TEXT NOT NULL DEFAULT '',
+      exp_date DATE NOT NULL DEFAULT CURRENT_DATE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_expenses_user ON expenses(user_id);
   `)
 }
 
-// ---------- coercion / row mapping ----------
-const str = (v) => (typeof v === 'string' ? v.trim() : v == null ? '' : String(v))
-const num = (v) => {
-  const n = Number(v)
-  return Number.isFinite(n) ? n : 0
-}
-const bool = (v) => !!v
-const today = () => new Date().toISOString().slice(0, 10)
+const str = (v) => (v == null ? '' : String(v).trim())
+const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
 const nowISO = () => new Date().toISOString()
+const today = () => new Date().toISOString().slice(0, 10)
 
-const ledgerRow = (r) => ({
+const userRow = (r) => ({
   id: r.id,
-  source: r.source,
-  amount: num(r.amount),
-  dateReceived: r.date_received,
-  purpose: r.purpose,
-  expectedTxnMin: num(r.expected_txn_min),
-  expectedTxnMax: num(r.expected_txn_max),
-  deadline: r.deadline,
-  status: r.status,
+  email: r.email,
+  name: r.name,
+  avatarUrl: r.avatar_url,
+  provider: r.provider,
+  createdAt: r.created_at,
+})
+
+const personRow = (r) => ({
+  id: r.id,
+  userId: r.user_id,
+  name: r.name,
+  phone: r.phone,
   note: r.note,
   createdAt: r.created_at,
 })
+
 const txnRow = (r) => ({
   id: r.id,
-  ledgerId: r.ledger_id,
+  userId: r.user_id,
+  personId: r.person_id,
+  type: r.type,
   amount: num(r.amount),
   description: r.description,
-  category: r.category,
-  date: r.date,
-  important: bool(r.important),
-  note: r.note,
+  date: r.txn_date instanceof Date ? r.txn_date.toISOString().slice(0, 10) : String(r.txn_date).slice(0, 10),
   createdAt: r.created_at,
 })
 
-// ---------- shared compute (matches the previous client-side logic) ----------
-const byDateDesc = (a, b) =>
-  a.date < b.date ? 1 : a.date > b.date ? -1 : (a.createdAt || '') < (b.createdAt || '') ? 1 : -1
+const expenseRow = (r) => ({
+  id: r.id,
+  userId: r.user_id,
+  amount: num(r.amount),
+  category: r.category,
+  description: r.description,
+  date: r.exp_date instanceof Date ? r.exp_date.toISOString().slice(0, 10) : String(r.exp_date).slice(0, 10),
+  createdAt: r.created_at,
+})
 
-function summarize(ledger, transactions) {
-  const mine = transactions.filter((t) => t.ledgerId === ledger.id)
-  const spent = mine.reduce((s, t) => s + num(t.amount), 0)
-  return {
-    ...ledger,
-    spent,
-    remaining: num(ledger.amount) - spent,
-    txnCount: mine.length,
-    importantCount: mine.filter((t) => t.important).length,
-  }
-}
-
-async function allLedgers() {
-  const { rows } = await pool.query('SELECT * FROM ledgers')
-  return rows.map(ledgerRow)
-}
-async function allTxns() {
-  const { rows } = await pool.query('SELECT * FROM transactions')
-  return rows.map(txnRow)
-}
-
-// ---------- API ----------
-export const data = {
-  // ----- ledgers -----
-  listLedgers: async () => {
-    const [ledgers, txns] = await Promise.all([allLedgers(), allTxns()])
-    return ledgers
-      .map((l) => summarize(l, txns))
-      .sort((a, b) => ((a.createdAt || '') < (b.createdAt || '') ? 1 : -1))
+export const db = {
+  // ---- users ----
+  findUserByEmail: async (email) => {
+    const { rows } = await pool.query('SELECT * FROM users WHERE email = $1', [email])
+    return rows[0] ? { ...userRow(rows[0]), passwordHash: rows[0].password_hash } : null
   },
 
-  getLedger: async (id) => {
-    const { rows } = await pool.query('SELECT * FROM ledgers WHERE id = $1', [id])
-    if (!rows.length) {
-      const err = new Error('Ledger not found')
-      err.status = 404
-      throw err
-    }
-    const ledger = ledgerRow(rows[0])
-    const txns = (await allTxns()).filter((t) => t.ledgerId === id).sort(byDateDesc)
-    return { ledger: summarize(ledger, txns), transactions: txns }
+  findUserById: async (id) => {
+    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [id])
+    return rows[0] ? userRow(rows[0]) : null
   },
 
-  createLedger: async (input = {}) => {
+  createUser: async ({ email, name, avatarUrl = '', provider = 'email', passwordHash = '' }) => {
     const id = randomUUID()
-    const row = {
-      id,
-      source: str(input.source),
-      amount: num(input.amount),
-      date_received: input.dateReceived ? str(input.dateReceived) : today(),
-      purpose: str(input.purpose),
-      expected_txn_min: num(input.expectedTxnMin),
-      expected_txn_max: num(input.expectedTxnMax),
-      deadline: str(input.deadline),
-      status: input.status ? str(input.status) : 'active',
-      note: str(input.note),
-      created_at: nowISO(),
-    }
-    await pool.query(
-      `INSERT INTO ledgers (id, source, amount, date_received, purpose, expected_txn_min,
-         expected_txn_max, deadline, status, note, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [row.id, row.source, row.amount, row.date_received, row.purpose, row.expected_txn_min,
-        row.expected_txn_max, row.deadline, row.status, row.note, row.created_at],
+    const { rows } = await pool.query(
+      `INSERT INTO users (id, email, name, avatar_url, provider, password_hash)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [id, str(email), str(name), str(avatarUrl), str(provider), str(passwordHash)],
     )
-    return ledgerRow(row)
+    return userRow(rows[0])
   },
 
-  updateLedger: async (id, input = {}) => {
-    const map = {
-      source: ['source', str],
-      amount: ['amount', num],
-      dateReceived: ['date_received', str],
-      purpose: ['purpose', str],
-      expectedTxnMin: ['expected_txn_min', num],
-      expectedTxnMax: ['expected_txn_max', num],
-      deadline: ['deadline', str],
-      status: ['status', str],
-      note: ['note', str],
-    }
+  updateUser: async (id, { name, avatarUrl }) => {
     const sets = []
     const vals = []
-    for (const [key, [col, coerce]] of Object.entries(map)) {
-      if (input[key] !== undefined) {
-        vals.push(coerce(input[key]))
-        sets.push(`${col} = $${vals.length}`)
-      }
-    }
-    if (sets.length) {
-      vals.push(id)
-      await pool.query(`UPDATE ledgers SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals)
-    }
-    return { id }
+    if (name !== undefined) { vals.push(str(name)); sets.push(`name = $${vals.length}`) }
+    if (avatarUrl !== undefined) { vals.push(str(avatarUrl)); sets.push(`avatar_url = $${vals.length}`) }
+    if (!sets.length) return db.findUserById(id)
+    vals.push(id)
+    await pool.query(`UPDATE users SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals)
+    return db.findUserById(id)
   },
 
-  deleteLedger: async (id) => {
+  // ---- persons ----
+  listPersons: async (userId) => {
+    const { rows: persons } = await pool.query(
+      'SELECT * FROM persons WHERE user_id = $1 ORDER BY created_at DESC',
+      [userId],
+    )
+    const { rows: txns } = await pool.query(
+      'SELECT person_id, type, amount FROM person_transactions WHERE user_id = $1',
+      [userId],
+    )
+    return persons.map((p) => {
+      const mine = txns.filter((t) => t.person_id === p.id)
+      const credits = mine.filter((t) => t.type === 'credit').reduce((s, t) => s + num(t.amount), 0)
+      const debits = mine.filter((t) => t.type === 'debit').reduce((s, t) => s + num(t.amount), 0)
+      return { ...personRow(p), balance: credits - debits, credits, debits, txnCount: mine.length }
+    })
+  },
+
+  getPerson: async (id, userId) => {
+    const { rows } = await pool.query(
+      'SELECT * FROM persons WHERE id = $1 AND user_id = $2',
+      [id, userId],
+    )
+    return rows[0] ? personRow(rows[0]) : null
+  },
+
+  createPerson: async (userId, { name, phone = '', note = '' }) => {
+    const id = randomUUID()
+    const { rows } = await pool.query(
+      `INSERT INTO persons (id, user_id, name, phone, note) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [id, userId, str(name), str(phone), str(note)],
+    )
+    return personRow(rows[0])
+  },
+
+  updatePerson: async (id, userId, { name, phone, note }) => {
+    const sets = []
+    const vals = []
+    if (name !== undefined) { vals.push(str(name)); sets.push(`name = $${vals.length}`) }
+    if (phone !== undefined) { vals.push(str(phone)); sets.push(`phone = $${vals.length}`) }
+    if (note !== undefined) { vals.push(str(note)); sets.push(`note = $${vals.length}`) }
+    if (!sets.length) return db.getPerson(id, userId)
+    vals.push(id, userId)
+    await pool.query(
+      `UPDATE persons SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND user_id = $${vals.length}`,
+      vals,
+    )
+    return db.getPerson(id, userId)
+  },
+
+  deletePerson: async (id, userId) => {
     const client = await pool.connect()
     try {
       await client.query('BEGIN')
-      await client.query('DELETE FROM transactions WHERE ledger_id = $1', [id])
-      await client.query('DELETE FROM ledgers WHERE id = $1', [id])
+      await client.query('DELETE FROM person_transactions WHERE person_id = $1 AND user_id = $2', [id, userId])
+      await client.query('DELETE FROM persons WHERE id = $1 AND user_id = $2', [id, userId])
       await client.query('COMMIT')
     } catch (e) {
       await client.query('ROLLBACK')
@@ -197,125 +203,88 @@ export const data = {
     }
   },
 
-  // ----- transactions -----
-  listTransactions: async (params = {}) => {
-    let list = await allTxns()
-    const { ledgerId, important, q, from, to, category } = params
-    if (ledgerId) list = list.filter((t) => t.ledgerId === ledgerId)
-    if (important === 'true' || important === true) list = list.filter((t) => t.important)
-    if (category) list = list.filter((t) => t.category === category)
-    if (from) list = list.filter((t) => t.date >= from)
-    if (to) list = list.filter((t) => t.date <= to)
-    if (q) {
-      const needle = String(q).toLowerCase()
-      list = list.filter(
-        (t) =>
-          (t.description || '').toLowerCase().includes(needle) ||
-          (t.category || '').toLowerCase().includes(needle) ||
-          (t.note || '').toLowerCase().includes(needle),
-      )
-    }
-    return list.sort(byDateDesc)
+  // ---- person transactions ----
+  listPersonTransactions: async (personId, userId, { from, to } = {}) => {
+    let q = 'SELECT * FROM person_transactions WHERE person_id = $1 AND user_id = $2'
+    const vals = [personId, userId]
+    if (from) { vals.push(from); q += ` AND txn_date >= $${vals.length}` }
+    if (to) { vals.push(to); q += ` AND txn_date <= $${vals.length}` }
+    q += ' ORDER BY txn_date DESC, created_at DESC'
+    const { rows } = await pool.query(q, vals)
+    return rows.map(txnRow)
   },
 
-  createTransaction: async (input = {}) => {
-    if (!input.ledgerId) {
-      const err = new Error('ledgerId is required')
-      err.status = 400
-      throw err
-    }
+  createTransaction: async (userId, { personId, type, amount, description = '', date }) => {
+    if (!personId) throw Object.assign(new Error('personId required'), { status: 400 })
+    if (!['credit', 'debit'].includes(type)) throw Object.assign(new Error('type must be credit or debit'), { status: 400 })
     const id = randomUUID()
-    const row = {
-      id,
-      ledger_id: str(input.ledgerId),
-      amount: num(input.amount),
-      description: str(input.description),
-      category: input.category ? str(input.category) : 'Misc',
-      date: input.date ? str(input.date) : today(),
-      important: bool(input.important),
-      note: str(input.note),
-      created_at: nowISO(),
-    }
-    await pool.query(
-      `INSERT INTO transactions (id, ledger_id, amount, description, category, date, important, note, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [row.id, row.ledger_id, row.amount, row.description, row.category, row.date, row.important, row.note, row.created_at],
+    const { rows } = await pool.query(
+      `INSERT INTO person_transactions (id, user_id, person_id, type, amount, description, txn_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [id, userId, str(personId), type, num(amount), str(description), date || today()],
     )
-    return txnRow(row)
+    return txnRow(rows[0])
   },
 
-  updateTransaction: async (id, input = {}) => {
-    const map = {
-      ledgerId: ['ledger_id', str],
-      amount: ['amount', num],
-      description: ['description', str],
-      category: ['category', str],
-      date: ['date', str],
-      important: ['important', bool],
-      note: ['note', str],
-    }
+  updateTransaction: async (id, userId, { type, amount, description, date }) => {
     const sets = []
     const vals = []
-    for (const [key, [col, coerce]] of Object.entries(map)) {
-      if (input[key] !== undefined) {
-        vals.push(coerce(input[key]))
-        sets.push(`${col} = $${vals.length}`)
-      }
-    }
-    if (sets.length) {
-      vals.push(id)
-      await pool.query(`UPDATE transactions SET ${sets.join(', ')} WHERE id = $${vals.length}`, vals)
-    }
+    if (type !== undefined) { vals.push(type); sets.push(`type = $${vals.length}`) }
+    if (amount !== undefined) { vals.push(num(amount)); sets.push(`amount = $${vals.length}`) }
+    if (description !== undefined) { vals.push(str(description)); sets.push(`description = $${vals.length}`) }
+    if (date !== undefined) { vals.push(date); sets.push(`txn_date = $${vals.length}`) }
+    if (!sets.length) return { id }
+    vals.push(id, userId)
+    await pool.query(
+      `UPDATE person_transactions SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND user_id = $${vals.length}`,
+      vals,
+    )
     return { id }
   },
 
-  deleteTransaction: async (id) => {
-    await pool.query('DELETE FROM transactions WHERE id = $1', [id])
+  deleteTransaction: async (id, userId) => {
+    await pool.query('DELETE FROM person_transactions WHERE id = $1 AND user_id = $2', [id, userId])
   },
 
-  // ----- backup -----
-  exportData: async () => {
-    const [ledgers, transactions] = await Promise.all([allLedgers(), allTxns()])
-    return { ledgers, transactions }
+  // ---- expenses ----
+  listExpenses: async (userId, { from, to, category } = {}) => {
+    let q = 'SELECT * FROM expenses WHERE user_id = $1'
+    const vals = [userId]
+    if (from) { vals.push(from); q += ` AND exp_date >= $${vals.length}` }
+    if (to) { vals.push(to); q += ` AND exp_date <= $${vals.length}` }
+    if (category) { vals.push(category); q += ` AND category = $${vals.length}` }
+    q += ' ORDER BY exp_date DESC, created_at DESC'
+    const { rows } = await pool.query(q, vals)
+    return rows.map(expenseRow)
   },
 
-  // Replaces ALL data. Preserves ids so transaction->ledger links stay intact.
-  importData: async ({ ledgers = [], transactions = [] }) => {
-    const client = await pool.connect()
-    try {
-      await client.query('BEGIN')
-      await client.query('DELETE FROM transactions')
-      await client.query('DELETE FROM ledgers')
-      for (const l of ledgers) {
-        await client.query(
-          `INSERT INTO ledgers (id, source, amount, date_received, purpose, expected_txn_min,
-             expected_txn_max, deadline, status, note, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-          [
-            l.id || randomUUID(), str(l.source), num(l.amount), str(l.dateReceived), str(l.purpose),
-            num(l.expectedTxnMin), num(l.expectedTxnMax), str(l.deadline),
-            l.status ? str(l.status) : 'active', str(l.note), l.createdAt || nowISO(),
-          ],
-        )
-      }
-      for (const t of transactions) {
-        await client.query(
-          `INSERT INTO transactions (id, ledger_id, amount, description, category, date, important, note, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [
-            t.id || randomUUID(), str(t.ledgerId), num(t.amount), str(t.description),
-            t.category ? str(t.category) : 'Misc', str(t.date), bool(t.important),
-            str(t.note), t.createdAt || nowISO(),
-          ],
-        )
-      }
-      await client.query('COMMIT')
-    } catch (e) {
-      await client.query('ROLLBACK')
-      throw e
-    } finally {
-      client.release()
-    }
-    return { ledgers: ledgers.length, transactions: transactions.length }
+  createExpense: async (userId, { amount, category = 'Other', description = '', date }) => {
+    const id = randomUUID()
+    const { rows } = await pool.query(
+      `INSERT INTO expenses (id, user_id, amount, category, description, exp_date)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [id, userId, num(amount), str(category), str(description), date || today()],
+    )
+    return expenseRow(rows[0])
+  },
+
+  updateExpense: async (id, userId, { amount, category, description, date }) => {
+    const sets = []
+    const vals = []
+    if (amount !== undefined) { vals.push(num(amount)); sets.push(`amount = $${vals.length}`) }
+    if (category !== undefined) { vals.push(str(category)); sets.push(`category = $${vals.length}`) }
+    if (description !== undefined) { vals.push(str(description)); sets.push(`description = $${vals.length}`) }
+    if (date !== undefined) { vals.push(date); sets.push(`exp_date = $${vals.length}`) }
+    if (!sets.length) return { id }
+    vals.push(id, userId)
+    await pool.query(
+      `UPDATE expenses SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND user_id = $${vals.length}`,
+      vals,
+    )
+    return { id }
+  },
+
+  deleteExpense: async (id, userId) => {
+    await pool.query('DELETE FROM expenses WHERE id = $1 AND user_id = $2', [id, userId])
   },
 }

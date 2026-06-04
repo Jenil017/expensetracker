@@ -1,82 +1,107 @@
-// Hisab server: serves the built React app and a /api/* REST layer from one origin.
-// Data lives in Neon Postgres (see db.js). Access is gated by a single shared password
-// (APP_PASSWORD), sent by the client as a Bearer token.
-// Load env vars before anything else imports db.js (which reads DATABASE_URL).
 import './env.js'
-
 import express from 'express'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import { data, initSchema } from './db.js'
+import { db, initSchema } from './db.js'
+import { signToken, authMiddleware, verifyGoogleToken, hashPassword, comparePassword } from './auth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const distDir = path.join(__dirname, '..', 'dist')
 const PORT = process.env.PORT || 3000
-const APP_PASSWORD = process.env.APP_PASSWORD || ''
 
 const app = express()
-app.use(express.json({ limit: '5mb' })) // import payloads can be largish
+app.use(express.json({ limit: '5mb' }))
 
-// Health check for the keep-alive pinger (no auth).
 app.get('/healthz', (_req, res) => res.type('text').send('ok'))
 
-// ---------- auth ----------
-function checkPassword(pw) {
-  return !!APP_PASSWORD && pw === APP_PASSWORD
-}
-// Validate a password without doing anything else (used on the login screen).
-app.post('/api/login', (req, res) => {
-  if (!APP_PASSWORD) return res.status(500).json({ error: 'Server has no APP_PASSWORD set.' })
-  if (checkPassword(req.body?.password)) return res.json({ ok: true })
-  return res.status(401).json({ error: 'Wrong password.' })
-})
-
-// Gate everything else under /api with the Bearer token.
-app.use('/api', (req, res, next) => {
-  const auth = req.get('authorization') || ''
-  const token = auth.startsWith('Bearer ') ? auth.slice(7) : ''
-  if (checkPassword(token)) return next()
-  return res.status(401).json({ error: 'Unauthorized' })
-})
-
-// small async wrapper so thrown errors hit the error handler
 const h = (fn) => (req, res, next) => Promise.resolve(fn(req, res)).catch(next)
 
-// ----- ledgers -----
-app.get('/api/ledgers', h(async (_req, res) => res.json(await data.listLedgers())))
-app.get('/api/ledgers/:id', h(async (req, res) => res.json(await data.getLedger(req.params.id))))
-app.post('/api/ledgers', h(async (req, res) => res.status(201).json(await data.createLedger(req.body))))
-app.put('/api/ledgers/:id', h(async (req, res) => res.json(await data.updateLedger(req.params.id, req.body))))
-app.delete('/api/ledgers/:id', h(async (req, res) => { await data.deleteLedger(req.params.id); res.status(204).end() }))
+// ---- auth (public) ----
+app.post('/api/auth/google', h(async (req, res) => {
+  const { credential } = req.body || {}
+  if (!credential) return res.status(400).json({ error: 'credential required' })
+  const payload = await verifyGoogleToken(credential)
+  let user = await db.findUserByEmail(payload.email)
+  if (!user) {
+    user = await db.createUser({
+      email: payload.email,
+      name: payload.name || '',
+      avatarUrl: payload.picture || '',
+      provider: 'google',
+    })
+  }
+  const token = signToken(user.id)
+  res.json({ token, user })
+}))
 
-// ----- transactions -----
-app.get('/api/transactions', h(async (req, res) => res.json(await data.listTransactions(req.query))))
-app.post('/api/transactions', h(async (req, res) => res.status(201).json(await data.createTransaction(req.body))))
-app.put('/api/transactions/:id', h(async (req, res) => res.json(await data.updateTransaction(req.params.id, req.body))))
-app.delete('/api/transactions/:id', h(async (req, res) => { await data.deleteTransaction(req.params.id); res.status(204).end() }))
+app.post('/api/auth/register', h(async (req, res) => {
+  const { name, email, password } = req.body || {}
+  if (!name || !email || !password) return res.status(400).json({ error: 'name, email and password required' })
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' })
+  const existing = await db.findUserByEmail(email)
+  if (existing) return res.status(409).json({ error: 'Email already registered' })
+  const passwordHash = await hashPassword(password)
+  const user = await db.createUser({ name, email, passwordHash, provider: 'email' })
+  const token = signToken(user.id)
+  res.status(201).json({ token, user })
+}))
 
-// ----- backup -----
-app.get('/api/export', h(async (_req, res) => res.json(await data.exportData())))
-app.post('/api/import', h(async (req, res) => res.json(await data.importData(req.body || {}))))
+app.post('/api/auth/login', h(async (req, res) => {
+  const { email, password } = req.body || {}
+  if (!email || !password) return res.status(400).json({ error: 'email and password required' })
+  const user = await db.findUserByEmail(email)
+  if (!user || !user.passwordHash) return res.status(401).json({ error: 'Invalid email or password' })
+  const ok = await comparePassword(password, user.passwordHash)
+  if (!ok) return res.status(401).json({ error: 'Invalid email or password' })
+  const token = signToken(user.id)
+  const { passwordHash: _, ...safeUser } = user
+  res.json({ token, user: safeUser })
+}))
 
-// Unknown API route -> JSON 404 (don't fall through to the SPA).
+// ---- protected routes ----
+app.use('/api', authMiddleware)
+
+app.get('/api/auth/me', h(async (req, res) => {
+  const user = await db.findUserById(req.userId)
+  if (!user) return res.status(404).json({ error: 'User not found' })
+  res.json({ user })
+}))
+
+app.put('/api/auth/me', h(async (req, res) => {
+  const user = await db.updateUser(req.userId, req.body)
+  res.json({ user })
+}))
+
+// ---- persons ----
+app.get('/api/persons', h(async (req, res) => res.json(await db.listPersons(req.userId))))
+app.post('/api/persons', h(async (req, res) => res.status(201).json(await db.createPerson(req.userId, req.body))))
+app.put('/api/persons/:id', h(async (req, res) => res.json(await db.updatePerson(req.params.id, req.userId, req.body))))
+app.delete('/api/persons/:id', h(async (req, res) => { await db.deletePerson(req.params.id, req.userId); res.status(204).end() }))
+
+// ---- person transactions ----
+app.get('/api/persons/:id/transactions', h(async (req, res) => {
+  res.json(await db.listPersonTransactions(req.params.id, req.userId, req.query))
+}))
+app.post('/api/transactions', h(async (req, res) => res.status(201).json(await db.createTransaction(req.userId, req.body))))
+app.put('/api/transactions/:id', h(async (req, res) => res.json(await db.updateTransaction(req.params.id, req.userId, req.body))))
+app.delete('/api/transactions/:id', h(async (req, res) => { await db.deleteTransaction(req.params.id, req.userId); res.status(204).end() }))
+
+// ---- expenses ----
+app.get('/api/expenses', h(async (req, res) => res.json(await db.listExpenses(req.userId, req.query))))
+app.post('/api/expenses', h(async (req, res) => res.status(201).json(await db.createExpense(req.userId, req.body))))
+app.put('/api/expenses/:id', h(async (req, res) => res.json(await db.updateExpense(req.params.id, req.userId, req.body))))
+app.delete('/api/expenses/:id', h(async (req, res) => { await db.deleteExpense(req.params.id, req.userId); res.status(204).end() }))
+
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }))
 
-// ---------- static frontend + SPA fallback ----------
 app.use(express.static(distDir))
 app.get('*', (_req, res) => res.sendFile(path.join(distDir, 'index.html')))
 
-// ---------- error handler ----------
 app.use((err, _req, res, _next) => {
   console.error(err)
   res.status(err.status || 500).json({ error: err.message || 'Server error' })
 })
 
 initSchema()
-  .then(() => {
-    app.listen(PORT, () => console.log(`Hisab server listening on :${PORT}`))
-  })
-  .catch((e) => {
-    console.error('Failed to initialize database schema:', e)
-    process.exit(1)
-  })
+  .then(() => app.listen(PORT, () => console.log(`Transaction Buddy server on :${PORT}`)))
+  .catch((e) => { console.error('Schema init failed:', e); process.exit(1) })

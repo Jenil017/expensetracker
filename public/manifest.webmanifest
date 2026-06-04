@@ -1,16 +1,26 @@
 {
-  "name": "Hisab — Expense Tracker",
-  "short_name": "Hisab",
-  "description": "Personal expense tracker with printable hisab statements.",
+  "name": "Transaction Buddy — Money Tracker",
+  "short_name": "Transaction Buddy",
+  "description": "Track money with friends, family and customers. Credit & debit ledger for everyone.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#f1f5f9",
-  "theme_color": "#1d4ed8",
+  "background_color": "#EEF5FD",
+  "theme_color": "#2C5EAD",
+  "categories": ["finance", "utilities"],
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
     { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Add Transaction",
+      "short_name": "Add",
+      "url": "/?action=add",
+      "icons": [{ "src": "/icon.svg", "sizes": "any" }]
+    }
   ]
 }
