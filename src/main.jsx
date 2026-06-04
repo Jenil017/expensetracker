@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App.jsx'
 import { AuthProvider } from './auth.jsx'
 import { ToastProvider } from './components/Toast.jsx'
+import { PinProvider } from './contexts/PinContext.jsx'
 import { registerSW } from './pwa.js'
 import './index.css'
 
@@ -11,9 +12,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <ToastProvider>
-          <App />
-        </ToastProvider>
+        <PinProvider>
+          <ToastProvider>
+            <App />
+          </ToastProvider>
+        </PinProvider>
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>,

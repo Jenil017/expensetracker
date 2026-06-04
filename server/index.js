@@ -92,6 +92,13 @@ app.post('/api/expenses', h(async (req, res) => res.status(201).json(await db.cr
 app.put('/api/expenses/:id', h(async (req, res) => res.json(await db.updateExpense(req.params.id, req.userId, req.body))))
 app.delete('/api/expenses/:id', h(async (req, res) => { await db.deleteExpense(req.params.id, req.userId); res.status(204).end() }))
 
+// ---- global search ----
+app.get('/api/search', h(async (req, res) => {
+  const q = String(req.query.q || '').trim()
+  if (!q) return res.json({ persons: [], transactions: [] })
+  res.json(await db.searchAll(req.userId, q))
+}))
+
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }))
 
 app.use(express.static(distDir))

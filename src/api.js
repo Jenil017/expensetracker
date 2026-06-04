@@ -55,6 +55,9 @@ export const api = {
   updateTransaction: (id, data) => request('PUT', `/transactions/${id}`, data),
   deleteTransaction: (id) => request('DELETE', `/transactions/${id}`),
 
+  // global search
+  search: (q) => request('GET', `/search?q=${encodeURIComponent(q)}`),
+
   // expenses
   listExpenses: (params = {}) => request('GET', `/expenses${qs(params)}`),
   createExpense: (data) => request('POST', '/expenses', data),

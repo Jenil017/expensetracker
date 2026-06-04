@@ -1,30 +1,37 @@
-import { useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from './auth.jsx'
+import { usePinLock } from './contexts/PinContext.jsx'
 import BottomNav from './components/BottomNav.jsx'
+import PinLock from './components/PinLock.jsx'
 import Login from './pages/Login.jsx'
 import Home from './pages/Home.jsx'
 import PersonDetail from './pages/PersonDetail.jsx'
 import Analytics from './pages/Analytics.jsx'
 import Profile from './pages/Profile.jsx'
+import SearchPage from './pages/SearchPage.jsx'
+
+const NAV_ROUTES = ['/', '/search', '/analytics', '/profile']
 
 function ProtectedLayout() {
   const { user, loading } = useAuth()
+  const { locked } = usePinLock()
   const location = useLocation()
 
   if (loading) return <AppLoader />
-  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
+  if (!user)   return <Navigate to="/login" state={{ from: location }} replace />
+  if (locked)  return <PinLock />
 
-  const showNav = ['/', '/analytics', '/profile'].includes(location.pathname)
+  const showNav = NAV_ROUTES.includes(location.pathname)
 
   return (
     <>
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/"            element={<Home />} />
+        <Route path="/search"      element={<SearchPage />} />
         <Route path="/persons/:id" element={<PersonDetail />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/analytics"   element={<Analytics />} />
+        <Route path="/profile"     element={<Profile />} />
+        <Route path="*"            element={<Navigate to="/" replace />} />
       </Routes>
       {showNav && <BottomNav />}
     </>
@@ -33,14 +40,10 @@ function ProtectedLayout() {
 
 export default function App() {
   const { user } = useAuth()
-
   return (
     <Routes>
-      <Route
-        path="/login"
-        element={user ? <Navigate to="/" replace /> : <Login />}
-      />
-      <Route path="/*" element={<ProtectedLayout />} />
+      <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/*"     element={<ProtectedLayout />} />
     </Routes>
   )
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '../auth.jsx'
 import { useToast } from '../components/Toast.jsx'
+import PinSetup from '../components/PinSetup.jsx'
 import { formatDate } from '../utils/format.js'
 
 function UserAvatar({ user, size = 'lg' }) {
@@ -118,6 +119,12 @@ export default function Profile() {
             Track money with friends, family, and customers. Add sent and received entries,
             download PDF statements, and monitor your expenses — all in one place.
           </p>
+        </div>
+
+        {/* PIN & Biometric lock */}
+        <div className="card p-4 animate-fade-up stagger-2">
+          <h3 className="text-sm font-semibold text-brand-600 mb-4">Security</h3>
+          <PinSetup />
         </div>
 
         {/* Install tip */}

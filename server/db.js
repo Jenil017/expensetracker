@@ -287,4 +287,45 @@ export const db = {
   deleteExpense: async (id, userId) => {
     await pool.query('DELETE FROM expenses WHERE id = $1 AND user_id = $2', [id, userId])
   },
+
+  // ---- global search ----
+  searchAll: async (userId, q) => {
+    const needle = `%${q.trim()}%`
+    const [{ rows: txnRows }, { rows: personRows }] = await Promise.all([
+      pool.query(`
+        SELECT pt.*, p.name AS person_name
+        FROM person_transactions pt
+        JOIN persons p ON p.id = pt.person_id
+        WHERE pt.user_id = $1
+          AND (
+            pt.description ILIKE $2
+            OR p.name ILIKE $2
+            OR CAST(pt.amount AS TEXT) ILIKE $2
+          )
+        ORDER BY pt.txn_date DESC, pt.created_at DESC
+        LIMIT 100
+      `, [userId, needle]),
+      pool.query(`
+        SELECT p.*,
+          COALESCE(SUM(CASE WHEN pt.type='credit' THEN pt.amount ELSE 0 END),0)
+          - COALESCE(SUM(CASE WHEN pt.type='debit'  THEN pt.amount ELSE 0 END),0) AS balance,
+          COUNT(pt.id) AS txn_count
+        FROM persons p
+        LEFT JOIN person_transactions pt ON pt.person_id = p.id AND pt.user_id = $1
+        WHERE p.user_id = $1 AND p.name ILIKE $2
+        GROUP BY p.id ORDER BY p.name
+      `, [userId, needle]),
+    ])
+    return {
+      persons: personRows.map(r => ({
+        ...personRow(r),
+        balance: num(r.balance),
+        txnCount: Number(r.txn_count) || 0,
+      })),
+      transactions: txnRows.map(r => ({
+        ...txnRow(r),
+        personName: r.person_name,
+      })),
+    }
+  },
 }
