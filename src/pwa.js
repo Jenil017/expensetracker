@@ -1,12 +1,14 @@
-// PWA install handling. The browser's install prompt (`beforeinstallprompt`) can fire
-// before React mounts, so we capture it at module load and expose a tiny API + a
-// `pwa:changed` event the UI can subscribe to.
 let deferredPrompt = null
 
 export function isStandalone() {
   return (
-    window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true
   )
+}
+
+export function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream
 }
 
 export function canInstall() {
@@ -23,7 +25,7 @@ export async function promptInstall() {
 }
 
 window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault() // stop Chrome's default mini-infobar; we show our own button
+  e.preventDefault()
   deferredPrompt = e
   window.dispatchEvent(new Event('pwa:changed'))
 })
@@ -33,9 +35,9 @@ window.addEventListener('appinstalled', () => {
   window.dispatchEvent(new Event('pwa:changed'))
 })
 
-// Register the service worker (production build only, to avoid clashing with dev HMR).
+// Register SW in both dev and prod so install prompt fires everywhere
 export function registerSW() {
-  if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js').catch(() => {})
     })

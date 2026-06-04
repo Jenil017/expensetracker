@@ -1,7 +1,7 @@
 {
   "name": "Transaction Buddy — Money Tracker",
-  "short_name": "Transaction Buddy",
-  "description": "Track money with friends, family and customers. Credit & debit ledger for everyone.",
+  "short_name": "Tx Buddy",
+  "description": "Track money with friends, family and customers. Sent and received ledger for everyone.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
@@ -11,16 +11,17 @@
   "theme_color": "#2C5EAD",
   "categories": ["finance", "utilities"],
   "icons": [
-    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "/icon.svg",          "sizes": "any",     "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "any",     "type": "image/svg+xml", "purpose": "maskable" },
+    { "src": "/icon-192.png",      "sizes": "192x192", "type": "image/png",     "purpose": "any maskable" },
+    { "src": "/icon-512.png",      "sizes": "512x512", "type": "image/png",     "purpose": "any maskable" }
   ],
-  "screenshots": [],
   "shortcuts": [
     {
-      "name": "Add Transaction",
+      "name": "Add Entry",
       "short_name": "Add",
       "url": "/?action=add",
-      "icons": [{ "src": "/icon.svg", "sizes": "any" }]
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

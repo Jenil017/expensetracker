@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../auth.jsx'
 import { useToast } from '../components/Toast.jsx'
+import InstallBanner from '../components/InstallBanner.jsx'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 
@@ -175,7 +176,9 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="mt-5 text-center text-xs text-brand-300 animate-fade-up stagger-4">
+        <InstallBanner />
+
+        <p className="mt-4 text-center text-xs text-brand-300 animate-fade-up stagger-4">
           By continuing, you agree to use this app responsibly.
         </p>
       </div>
