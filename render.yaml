@@ -1,0 +1,31 @@
+# Render Blueprint for the Hisab static site.
+# Deploy: https://dashboard.render.com -> New -> Blueprint -> connect this repo.
+# Render will read this file and prompt you to enter the VITE_* values
+# (they are NOT stored in this file, so they stay out of git).
+services:
+  - type: web
+    name: hisab
+    runtime: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    # SPA fallback: serve index.html for every path so client-side routes
+    # like /ledgers/:id and /hisab/:id work on refresh / direct link.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_FIREBASE_API_KEY
+        sync: false
+      - key: VITE_FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: VITE_FIREBASE_PROJECT_ID
+        sync: false
+      - key: VITE_FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: VITE_FIREBASE_MESSAGING_SENDER_ID
+        sync: false
+      - key: VITE_FIREBASE_APP_ID
+        sync: false
+      - key: VITE_OWNER_EMAIL
+        sync: false

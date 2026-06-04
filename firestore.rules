@@ -7,7 +7,7 @@ service cloud.firestore {
 
     function isOwner() {
       return request.auth != null
-          && request.auth.token.email == 'yagnik.laughlogiclabs@gmail.com';
+          && request.auth.token.email == 'moradiyajenil528@gmail.com';
     }
 
     match /ledgers/{id} {
