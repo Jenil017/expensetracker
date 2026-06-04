@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Full-bleed background so OS masks (circle/squircle) never show transparency.
+       Glyph kept within the central ~80% safe zone. -->
+  <rect width="512" height="512" fill="#1d4ed8"/>
+  <text x="256" y="348" font-size="280" font-family="Arial, Helvetica, sans-serif"
+        font-weight="bold" fill="#ffffff" text-anchor="middle">₹</text>
+</svg>

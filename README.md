@@ -13,79 +13,70 @@ transactions over 4 days), log every expense against it, and generate a clean pr
 - **Backup** — export/import the whole dataset as JSON.
 
 ## Tech
-React + Vite + Tailwind, with **Firebase**:
-- **Firestore** stores the data (free, reliable, syncs across devices).
-- **Firebase Auth (Google)** locks the app to a single Google account.
+React + Vite + Tailwind frontend, served by a small **Express** API server, with data in
+**Neon Postgres** (free serverless Postgres — data persists permanently, surviving every
+restart and redeploy).
 
-It's a pure static site — no server — so it hosts for free on Vercel with no cold starts.
+It runs as **one web service**: the Express server serves both the built React app and a
+REST API under `/api/*` on the same origin. Access is gated by a single shared password.
 
----
-
-## 1. Create the Firebase project (one-time, ~5 min)
-1. Go to <https://console.firebase.google.com> → **Add project** (any name, e.g. `hisab`).
-   Google Analytics is optional (you can skip it).
-2. **Build → Firestore Database → Create database** → start in **Production mode** →
-   pick a location near you → Enable.
-3. **Build → Authentication → Get started → Sign-in method → Google → Enable** → set a
-   support email → Save.
-4. **Project settings (gear icon) → General → Your apps → Web app (`</>`)** → register an
-   app (nickname `hisab`, no Hosting needed) → copy the `firebaseConfig` values.
-
-## 2. Configure locally
-1. `cp .env.example .env.local` (Windows: `copy .env.example .env.local`).
-2. Paste your Firebase values into `.env.local`, and set `VITE_OWNER_EMAIL` to your Google
-   email.
-3. Make sure the email in **`firestore.rules`** matches `VITE_OWNER_EMAIL`.
-
-```bash
-npm install
-npm run dev      # http://localhost:5173
 ```
-Sign in with Google — only `VITE_OWNER_EMAIL` is allowed in.
-
-> Bringing over the old local test data? Use **Backup → Import** and select the old
-> `server/data/data.json` (or any exported `hisab-backup-*.json`) — same format.
-
-## 3. Publish the Firestore security rules
-The rules in `firestore.rules` restrict all reads/writes to your account. Publish them:
-- **Easiest:** Firebase Console → **Firestore → Rules**, paste the contents of
-  `firestore.rules`, **Publish**.
-- **Or via CLI:** `npm i -g firebase-tools && firebase login && firebase deploy --only firestore:rules`
-  (needs a `firebase.json` pointing at the rules file).
-
-## 4. Push to GitHub
-```bash
-git init
-git add .
-git commit -m "Hisab expense tracker"
-git branch -M main
-git remote add origin https://github.com/<you>/<repo>.git
-git push -u origin main
+Browser ── /            → built React app (dist/)
+        ── /api/*        → Express REST API ── Neon Postgres
+        ── /healthz      → uptime ping (keep the free service awake)
 ```
-(`.env.local` is gitignored, so your config stays out of the repo.)
-
-## 5. Deploy to Vercel (free)
-1. <https://vercel.com> → **Add New → Project** → import your GitHub repo.
-2. Framework preset: **Vite** (Build `npm run build`, Output `dist` — auto-detected).
-3. **Environment Variables** → add all the `VITE_FIREBASE_*` vars **and**
-   `VITE_OWNER_EMAIL` (same values as `.env.local`).
-4. **Deploy.**
-5. After deploy, copy your Vercel URL (e.g. `your-app.vercel.app`) and add it in
-   **Firebase Console → Authentication → Settings → Authorized domains** so Google sign-in
-   works on the live site.
-
-Done — open the Vercel URL on your phone or laptop, sign in, and track away. Data lives in
-Firestore and is shared across every device you sign in on.
 
 ---
 
 ## Environment variables
 | Var | Purpose |
 | --- | --- |
-| `VITE_FIREBASE_API_KEY` … `VITE_FIREBASE_APP_ID` | Firebase web config (from console) |
-| `VITE_OWNER_EMAIL` | The only Google account allowed to sign in (match `firestore.rules`) |
+| `DATABASE_URL` | Neon Postgres connection string |
+| `APP_PASSWORD` | Shared password to unlock the app (sent by the client as a Bearer token) |
+| `PORT` | Server port — Render sets this automatically; defaults to `3000` locally |
 
-## Notes on security
-Firebase web config values are **not secrets** — they only identify the project. Real
-protection comes from `firestore.rules` (owner-only) plus Google sign-in. Keep the email in
-`firestore.rules` and `VITE_OWNER_EMAIL` identical.
+`.env.local` is gitignored, so your real values never get committed.
+
+## 1. Neon (one-time, ~2 min)
+1. Create a free project at <https://neon.tech>.
+2. **Connect → Connection string** → copy it.
+   (The `ledgers` and `transactions` tables are created automatically the first time the
+   server starts — no manual SQL needed.)
+
+## 2. Run locally
+1. `copy .env.example .env.local` and fill in `DATABASE_URL` + `APP_PASSWORD`.
+2. `npm install`
+3. Run the API and the app (two terminals):
+   ```bash
+   npm run dev:server   # API on http://localhost:3000
+   npm run dev          # app on http://localhost:5173 (proxies /api → :3000)
+   ```
+   Open <http://localhost:5173> and enter your password.
+
+   > Or to run exactly like production on a single port: `npm run build` then `npm start`,
+   > and open <http://localhost:3000>.
+
+## 3. Deploy to Render (free)
+### Option A — Blueprint (uses `render.yaml`)
+1. Push this repo to GitHub.
+2. <https://dashboard.render.com> → **New → Blueprint** → connect the repo.
+3. When prompted, paste `DATABASE_URL` and `APP_PASSWORD` → **Apply**.
+
+### Option B — manual
+1. **New → Web Service** → connect the repo.
+2. **Build Command:** `npm install && npm run build` — **Start Command:** `npm start`
+3. **Environment:** add `DATABASE_URL` and `APP_PASSWORD`.
+4. **Health Check Path:** `/healthz` → **Create Web Service**.
+
+## 4. Keep the free service awake (cron)
+Free Render web services sleep after ~15 min idle and take ~50s to cold-start on the next
+request. Ping `/healthz` every ~14 minutes to keep it warm:
+
+- <https://cron-job.org> (free) → **Create cronjob** → URL
+  `https://YOUR-APP.onrender.com/healthz`, schedule **every 14 minutes**.
+
+Keeping one free service awake 24/7 stays within Render's 750 free instance-hours/month.
+
+## Backup
+Use the **Backup** page to export the full dataset as JSON, or import a JSON backup
+(replaces all data). Same format throughout, so old `hisab-backup-*.json` files still import.

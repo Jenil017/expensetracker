@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Routes, Route, NavLink, Link } from 'react-router-dom'
 import { useAuth } from './auth.jsx'
+import InstallButton from './InstallButton.jsx'
 import Dashboard from './pages/Dashboard.jsx'
 import LedgerForm from './pages/LedgerForm.jsx'
 import LedgerDetail from './pages/LedgerDetail.jsx'
@@ -108,6 +109,7 @@ function Login({ login, error }) {
           </button>
         </form>
         {error && <p className="mt-3 text-xs text-red-500">{error}</p>}
+        <InstallButton />
       </div>
     </div>
   )
