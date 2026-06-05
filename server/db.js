@@ -193,8 +193,9 @@ export const db = {
     try {
       await client.query('BEGIN')
       await client.query('DELETE FROM person_transactions WHERE person_id = $1 AND user_id = $2', [id, userId])
-      await client.query('DELETE FROM persons WHERE id = $1 AND user_id = $2', [id, userId])
+      const { rowCount } = await client.query('DELETE FROM persons WHERE id = $1 AND user_id = $2', [id, userId])
       await client.query('COMMIT')
+      return rowCount > 0
     } catch (e) {
       await client.query('ROLLBACK')
       throw e
@@ -233,17 +234,23 @@ export const db = {
     if (amount !== undefined) { vals.push(num(amount)); sets.push(`amount = $${vals.length}`) }
     if (description !== undefined) { vals.push(str(description)); sets.push(`description = $${vals.length}`) }
     if (date !== undefined) { vals.push(date); sets.push(`txn_date = $${vals.length}`) }
-    if (!sets.length) return { id }
+    if (!sets.length) {
+      const { rows } = await pool.query(
+        'SELECT id FROM person_transactions WHERE id = $1 AND user_id = $2', [id, userId]
+      )
+      return rows[0] ? { id } : null
+    }
     vals.push(id, userId)
-    await pool.query(
-      `UPDATE person_transactions SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND user_id = $${vals.length}`,
+    const { rows } = await pool.query(
+      `UPDATE person_transactions SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND user_id = $${vals.length} RETURNING id`,
       vals,
     )
-    return { id }
+    return rows[0] ? { id: rows[0].id } : null
   },
 
   deleteTransaction: async (id, userId) => {
-    await pool.query('DELETE FROM person_transactions WHERE id = $1 AND user_id = $2', [id, userId])
+    const { rowCount } = await pool.query('DELETE FROM person_transactions WHERE id = $1 AND user_id = $2', [id, userId])
+    return rowCount > 0
   },
 
   // ---- expenses ----
@@ -275,17 +282,23 @@ export const db = {
     if (category !== undefined) { vals.push(str(category)); sets.push(`category = $${vals.length}`) }
     if (description !== undefined) { vals.push(str(description)); sets.push(`description = $${vals.length}`) }
     if (date !== undefined) { vals.push(date); sets.push(`exp_date = $${vals.length}`) }
-    if (!sets.length) return { id }
+    if (!sets.length) {
+      const { rows } = await pool.query(
+        'SELECT id FROM expenses WHERE id = $1 AND user_id = $2', [id, userId]
+      )
+      return rows[0] ? { id } : null
+    }
     vals.push(id, userId)
-    await pool.query(
-      `UPDATE expenses SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND user_id = $${vals.length}`,
+    const { rows } = await pool.query(
+      `UPDATE expenses SET ${sets.join(', ')} WHERE id = $${vals.length - 1} AND user_id = $${vals.length} RETURNING id`,
       vals,
     )
-    return { id }
+    return rows[0] ? { id: rows[0].id } : null
   },
 
   deleteExpense: async (id, userId) => {
-    await pool.query('DELETE FROM expenses WHERE id = $1 AND user_id = $2', [id, userId])
+    const { rowCount } = await pool.query('DELETE FROM expenses WHERE id = $1 AND user_id = $2', [id, userId])
+    return rowCount > 0
   },
 
   // ---- global search ----
